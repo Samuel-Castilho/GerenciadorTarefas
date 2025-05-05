@@ -1,0 +1,271 @@
+﻿@page "/"
+@using GerenciadorTarefas.Client.Components
+@using GerenciadorTarefas.Client.Models
+@using GerenciadorTarefas.Client.Services
+@using Microsoft.AspNetCore.Components.QuickGrid
+
+@inject TarefaHttpClient _client
+
+<PageTitle>Gerenciador tarefas</PageTitle>
+<h1 style="text-align : center;">Gerenciador de tarefas</h1>
+
+<div class="container" style="justify-content: space-evenly;border: none; margin-bottom: 10px;">
+    <TarefaDialog @ref="tarefaDialog" CreateTarefaAsync="CreateTarefas" UpdateTarefaAsync="UpdateTarefas"></TarefaDialog>
+    <button style="border-radius : 5px;" @onclick="DeleteTarefas">Deletar tarefas selecioandas</button>
+
+</div>
+
+<div class="container">
+    <div class="sidebar">
+        <div class="menu-item" style="@((status == null ? "border : 5px solid red;" : string.Empty) +"gap : 10px;")" @onclick="@(async()=> await ChangeStatusAsync(null))">
+            <div class="circle"> @totalTarefas</div>
+            <span>Todas tarefas</span>
+        </div>
+        <div class="menu-item" style="@((status == ETarefaStatus.Pendente ? "border : 5px solid red;" : string.Empty)+"gap : 10px;")" @onclick="@(async()=> await ChangeStatusAsync(ETarefaStatus.Pendente))">
+            <div class="circle"> @totalTarefasPendentes</div>
+            <span>Tarefas Pendentes</span>
+        </div>
+        <div class="menu-item" style="@((status == ETarefaStatus.EmProgresso ? "border : 5px solid red;" : string.Empty)+"gap : 10px;")" @onclick="@(async()=> await ChangeStatusAsync(ETarefaStatus.EmProgresso))">
+            <div class="circle"> @totalTarefasEmProgresso</div>
+            <span>Tarefas em progresso</span>
+        </div>
+        <div class="menu-item" style="@((status == ETarefaStatus.Concluida ? "border : 5px solid red;" : string.Empty)+"gap : 10px;")" @onclick="@(async()=> await ChangeStatusAsync(ETarefaStatus.Concluida))">
+            <div class="circle"> @totalTarefasConcluidas</div>
+            <span>Tarefas concluidas</span>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="search-bar">
+            <input @bind-value="titulo" type="text" class="search-input">
+            <button class="search-button" @onclick="SearchAsync">buscar</button>
+        </div>
+
+        <div class="content-area">
+            @if (tarefasGrid is not null)
+            {
+
+                <QuickGrid Items="tarefasGrid" Virtualize="true" id="grid-tarefas">
+                    <TemplateColumn Context="tf" Title="Selecionar">
+                        <input type="checkbox" checked="@(selectedTarefas.Contains(tf.Id))" @onchange="(x)=>CheckboxChanged(x,tf.Id)" />
+                        <svg @onclick="(()=>tarefaDialog.OpenDialogEdit(tf))" class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
+                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m14.304 4.844 2.852 2.852M7 7H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4.5m2.409-9.91a2.017 2.017 0 0 1 0 2.853l-6.844 6.844L8 14l.713-3.565 6.844-6.844a2.015 2.015 0 0 1 2.852 0Z" />
+                        </svg>
+
+                    </TemplateColumn>
+                    <PropertyColumn Property="@(x=> x.Titulo)"></PropertyColumn>
+                    <PropertyColumn Property="@(x=> x.Descricao)"></PropertyColumn>
+                    <TemplateColumn Context="tf" Title="Status">
+                        @{
+                            switch (tf.Status)
+                            {
+                                case ETarefaStatus.Pendente:
+                                    <span style="color : lightblue">Pendente</span>
+                                    break;
+                                case ETarefaStatus.EmProgresso:
+                                    <span style="color : saddlebrown">Em progresso</span>
+                                    break;
+                                case ETarefaStatus.Concluida:
+                                    <span style="color : green">Concluida</span>
+                                    break;
+                            }
+                        }
+                    </TemplateColumn>
+
+                    <PropertyColumn Property="@(x => x.DataCriacao)" Format="yyyy/MM/dd"> </PropertyColumn>
+                    <TemplateColumn Context="tf" Title="Conclusao">
+                        @{
+                            if (tf.Status == ETarefaStatus.Concluida)
+                            {
+                                <span>@tf.DataConclusao.Value.ToString("yyyy/MM/dd")</span>
+                            }
+                            else
+                            {
+                                <span>Não concluida</span>
+                            }
+                        }
+
+                    </TemplateColumn>
+                </QuickGrid>
+
+            }
+
+        </div>
+
+        <div class="pagination">
+            @if (hasPrevious)
+            {
+                <div class="arrow" @onclick="PrevioustPage">←</div>
+            }
+            else
+            {
+                <div class="arrow"></div>
+            }
+            <div class="page-info">
+                <span class="page-number">@currentPage</span>
+            </div>
+            @if (hasNext)
+            {
+                <div class="arrow" @onclick="NextPage">→</div>
+            }
+            else
+            {
+                <div class="arrow"></div>
+            }
+            <div class="total">Pages: @totalPages</div>
+            <div class="total">Tarefas: @totalCount</div>
+        </div>
+    </div>
+</div>
+
+
+
+@code {
+
+    int reference { get; set; }
+    int pageSize { get; set; } = 10;
+    EDirection direction { get; set; } = EDirection.Forward;
+    ETarefaStatus? status { get; set; } = null;
+    string? titulo { get; set; }
+    int currentPage { get; set; } = 0;
+    int totalPages { get; set; }
+    int totalCount { get; set; }
+    bool hasPrevious { get; set; }
+    bool hasNext { get; set; }
+
+    int totalTarefas { get; set; }
+    int totalTarefasPendentes { get; set; }
+    int totalTarefasEmProgresso { get; set; }
+    int totalTarefasConcluidas { get; set; }
+
+    IQueryable<TarefaViewModel> tarefasGrid;
+
+    TarefaDialog tarefaDialog { get; set; }
+
+    List<int> selectedTarefas { get; set; } = new();
+
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        var page = await _client.GetAsync(reference, pageSize, direction, status, null, currentPage);
+        await UpdateCountStatusAsync();
+        UpdatePagination(page);
+
+    }
+
+
+    private async Task SearchAsync()
+    {
+        var title = string.IsNullOrWhiteSpace(titulo) ? null : titulo;
+
+        ResetPagination();
+        titulo = title;
+        var page = await _client.GetAsync(reference, pageSize, direction, status, title, currentPage);
+        await UpdateCountStatusAsync();
+        UpdatePagination(page);
+
+    }
+
+    private void UpdatePagination(PaginatedTarefa ptf)
+    {
+        tarefasGrid = ptf.Items.AsQueryable();
+        hasPrevious = ptf.HasPreviousPage;
+        hasNext = ptf.HasNextPage;
+        currentPage = ptf.CurrentPage;
+        totalPages = ptf.TotalPages;
+        totalCount = ptf.TotalCount;
+    }
+
+    private async Task UpdateCountStatusAsync()
+    {
+        (totalTarefas, totalTarefasPendentes, totalTarefasEmProgresso, totalTarefasConcluidas) = await _client.GetCountByStatus();
+
+    }
+
+
+    private async Task NextPage()
+    {
+        direction = EDirection.Forward;
+        int newReference = tarefasGrid.Max(t => t.Id);
+        reference = newReference;
+        var title = string.IsNullOrWhiteSpace(titulo) ? null : titulo;
+        var page = await _client.GetAsync(reference, pageSize, direction, status, title, currentPage);
+        UpdatePagination(page);
+    }
+
+    private async Task PrevioustPage()
+    {
+        direction = EDirection.Backward;
+        int newReference = tarefasGrid.Min(t => t.Id);
+        reference = newReference;
+        var title = string.IsNullOrWhiteSpace(titulo) ? null : titulo;
+        var page = await _client.GetAsync(reference, pageSize, direction, status, title, currentPage);
+        UpdatePagination(page);
+    }
+
+    private async Task ChangeStatusAsync(ETarefaStatus? newStatus)
+    {
+        status = newStatus;
+        ResetPagination();
+        var page = await _client.GetAsync(reference, pageSize, direction, status, null, currentPage);
+        UpdatePagination(page);
+    }
+
+
+    private void ResetPagination()
+    {
+        currentPage = 0;
+        reference = 0;
+        direction = EDirection.Forward;
+        titulo = null;
+        selectedTarefas.Clear();
+    }
+
+
+    private async Task DeleteTarefas(MouseEventArgs args)
+    {
+
+        var response = await _client.DeleteAsync(selectedTarefas);
+        (totalTarefas, totalTarefasPendentes, totalTarefasEmProgresso, totalTarefasConcluidas) = response.CountByStatus;
+        await SearchAsync();
+
+    }
+
+    private async Task CreateTarefas(IEnumerable<TarefaViewModel> tarefas)
+    {
+
+        var response = await _client.CreateAsync(tarefas);
+        (totalTarefas, totalTarefasPendentes, totalTarefasEmProgresso, totalTarefasConcluidas) = response.CountByStatus;
+        await SearchAsync();
+
+    }
+
+    private async Task UpdateTarefas(IEnumerable<TarefaViewModel> tarefas)
+    {
+
+        var response = await _client.UpdateAsync(tarefas);
+        (totalTarefas, totalTarefasPendentes, totalTarefasEmProgresso, totalTarefasConcluidas) = response.CountByStatus;
+        await SearchAsync();
+
+    }
+
+    private void CheckboxChanged(ChangeEventArgs args, int idTarefa)
+    {
+        bool newValue = (bool)args.Value;
+        if (newValue)
+        {
+            selectedTarefas.Add(idTarefa);
+        }
+        else
+        {
+            selectedTarefas.Remove(idTarefa);
+        }
+    }
+
+    public enum EDirection : sbyte
+    {
+        Forward = 0,
+        Backward = 1
+    }
+}
